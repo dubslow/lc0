@@ -237,20 +237,40 @@ uint64_t ReverseBitsInBytes(uint64_t v) {
 }
 }  // namespace
 
-V3TrainingData Node::GetV3TrainingData(GameResult game_result,
-                                       const PositionHistory& history) const {
+V3TrainingData Node::GetV3TrainingData(const PositionHistory& history,
+                                       bool checkmate) const {
   V3TrainingData result;
 
   // Set version.
   result.version = 3;
 
   // Populate probabilities.
-  float total_n = static_cast<float>(
-      GetN() - 1);  // First visit was expansion of it inself.
   std::memset(result.probabilities, 0, sizeof(result.probabilities));
-  for (const auto& child : Edges()) {
-    result.probabilities[child.edge()->GetMove().as_nn_index()] =
-        child.GetN() / total_n;
+  if (checkmate) {
+    // The PUCT search, when it finds a checkmate, ignores all other siblings;
+    // this is fine for play, but could cause blindspots in policy if trained
+    // as such, ignoring other equally good checkmates.
+    // This could in principle be fixed in the search code, to make it actually
+    // generate visits to all checkmates equally, but that's only necessary for
+    // selfplay generation and also at the root_node_, so it's much cleaner and
+    // easier to make the adjustment here.
+    std::vector<uint16_t> nn_indices;
+    for (const auto& child : Edges()) {
+      if (child.IsTerminal() && child.GetQ(0.0f) == 1.0f) {
+        nn_indices.emplace_back(child.edge()->GetMove().as_nn_index());
+      }
+    }
+    float probability = 1 / static_cast<float>(nn_indices.size());
+    for (const auto& nn_index : nn_indices) {
+      result.probabilities[nn_index] = probability;
+    }
+  } else {
+    // First visit was expansion of "this" itself.
+    float total_n = static_cast<float>(GetN() - 1);
+    for (const auto& child : Edges()) {
+      result.probabilities[child.edge()->GetMove().as_nn_index()] =
+          child.GetN() / total_n;
+    }
   }
 
   // Populate planes.
@@ -272,14 +292,8 @@ V3TrainingData Node::GetV3TrainingData(GameResult game_result,
   result.move_count = 0;
   result.rule50_count = position.GetNoCapturePly();
 
-  // Game result.
-  if (game_result == GameResult::WHITE_WON) {
-    result.result = position.IsBlackToMove() ? -1 : 1;
-  } else if (game_result == GameResult::BLACK_WON) {
-    result.result = position.IsBlackToMove() ? 1 : -1;
-  } else {
-    result.result = 0;
-  }
+  // Game result. It is later overwritten in the selfplay code.
+  result.result = 0;
 
   return result;
 }

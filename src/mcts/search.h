@@ -73,10 +73,10 @@ class Search {
   // Returns best move, from the point of view of white player. And also ponder.
   // May or may not use temperature, according to the settings.
   std::pair<Move, Move> GetBestMove() const;
-  // Returns the evaluation of the best move, WITHOUT temperature. This differs
-  // from the above function; with temperature enabled, these two functions may
-  // return results from different possible moves.
-  float GetBestEval() const;
+  // Returns the best move, WITHOUT temperature. This differs from the above
+  // function; with temperature enabled, these two functions may return
+  // different results for the same tree.
+  EdgeAndNode GetBestNode() const;
 
   // Strings for UCI params. So that others can override defaults.
   // TODO(mooskagh) There are too many options for now. Factor out that into a

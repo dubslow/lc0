@@ -53,11 +53,7 @@ void SelfPlayGame::Play(int white_threads, int black_threads,
   bool blacks_move = false;
 
   // Do moves while not end of the game. (And while not abort_)
-  while (!abort_) {
-    game_result_ = tree_[0]->GetPositionHistory().ComputeGameResult();
-
-    // If endgame, stop.
-    if (game_result_ != GameResult::UNDECIDED) break;
+  while (!abort_ && game_result_ == GameResult::UNDECIDED) {
 
     // Initialize search.
     const int idx = blacks_move ? 1 : 0;
@@ -77,11 +73,17 @@ void SelfPlayGame::Play(int white_threads, int black_threads,
     search_->RunBlocking(blacks_move ? black_threads : white_threads);
     if (abort_) break;
 
+    // Get best child node, with no temperature, for resign and checkmate.
+    EdgeAndNode node = search_->GetBestNode();
+    float eval = node.GetQ(0.0f);
+    bool checkmate = (eval == 1.0f && node.IsTerminal());
+
     // Append training data. The GameResult is later overwritten.
     training_data_.push_back(tree_[idx]->GetCurrentHead()->GetV3TrainingData(
-        GameResult::UNDECIDED, tree_[idx]->GetPositionHistory()));
+        tree_[idx]->GetPositionHistory(), checkmate));
 
-    float eval = search_->GetBestEval();
+    if (checkmate) break;
+
     eval = (eval + 1) / 2;
     if (eval < min_eval_[idx]) min_eval_[idx] = eval;
     if (enable_resign) {
@@ -94,11 +96,13 @@ void SelfPlayGame::Play(int white_threads, int black_threads,
       }
     }
 
-    // Add best move to the tree.
+    // No resign, no checkmate -- use temperature to play a continuing move.
     Move move = search_->GetBestMove().first;
     tree_[0]->MakeMove(move);
     if (tree_[0] != tree_[1]) tree_[1]->MakeMove(move);
     blacks_move = !blacks_move;
+
+    game_result_ = tree_[0]->GetPositionHistory().ComputeGameResult();
   }
 }
 
